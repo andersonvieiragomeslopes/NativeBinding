@@ -45,7 +45,12 @@ For each target platform, discover and download the native artifact. The goal is
    - URL: `https://repo1.maven.org/maven2/{groupId-path}/{artifactId}/{version}/{artifactId}-{version}.aar`
    - If `.aar` 404s, try `.jar`
    - Download with `curl -L -o <output-dir>/android/<filename> "<url>"`
-4. **Verify** the download: `file <output-dir>/android/<filename>` — must be a valid archive, not an HTML error page.
+4. **Check for companion/core JARs** — Kotlin-based SDKs often split their code across multiple artifacts. The main AAR may only contain the platform-specific layer, while core types (Configuration, Events, etc.) live in a separate `-core` JAR.
+   - Inspect the AAR's POM file for dependencies: `https://repo1.maven.org/maven2/{groupId-path}/{artifactId}/{version}/{artifactId}-{version}.pom`
+   - Look for a `*-core-*.jar` or similar artifact in the same groupId
+   - Download companion JARs and add them as `<AndroidLibrary>` in the csproj
+   - **This is critical**: without the core JAR, many classes (Amplitude, Configuration, Identify, BaseEvent, etc.) will be missing from the binding
+5. **Verify** the download: `file <output-dir>/android/<filename>` — must be a valid archive, not an HTML error page.
 
 ### iOS
 
@@ -57,37 +62,81 @@ Try these approaches in order — stop at the first success:
    - Look for `.xcframework.zip` or `.xcframework` assets. Download with `gh release download` or `curl -L`.
    - If the download is a `.zip`, unzip it and locate the `.xcframework` directory.
 
-2. **Build from source** — If no pre-built XCFramework exists:
-   - Clone the repo: `git clone --depth 1 <repo-url> /tmp/<sdk-name>-src`
-   - Inspect the project: look for `Package.swift` (SPM), `Cartfile` (Carthage), or `.xcodeproj`/`.xcworkspace`.
-   - **SPM projects**: `swift build` to verify, then use `xcodebuild` with the scheme.
-   - **Carthage projects**: `carthage bootstrap --use-xcframeworks --no-use-binaries --platform iOS` if carthage is installed, otherwise fall back to xcodebuild.
-   - **xcodebuild** approach:
-     ```bash
-     # Find the scheme
-     xcodebuild -list -project *.xcodeproj 2>/dev/null || xcodebuild -list -workspace *.xcworkspace
+2. **Build from source via `swift build` + `ar` + `xcodebuild -create-xcframework`** — This is the most reliable approach when no pre-built XCFramework exists. **Do NOT use `xcodebuild archive`** as it often produces Mac Catalyst binaries instead of iOS, even with `-destination "generic/platform=iOS"`.
 
-     # Archive for device
-     xcodebuild archive \
-       -scheme <scheme> \
-       -destination "generic/platform=iOS" \
-       -archivePath /tmp/<sdk-name>-device.xcarchive \
-       SKIP_INSTALL=NO BUILD_LIBRARY_FOR_DISTRIBUTION=YES
+   ```bash
+   # Clone the repo
+   git clone --depth 1 --branch <tag> <repo-url> /tmp/<sdk-name>-src
+   cd /tmp/<sdk-name>-src
 
-     # Archive for simulator
-     xcodebuild archive \
-       -scheme <scheme> \
-       -destination "generic/platform=iOS Simulator" \
-       -archivePath /tmp/<sdk-name>-sim.xcarchive \
-       SKIP_INSTALL=NO BUILD_LIBRARY_FOR_DISTRIBUTION=YES
+   # Detect Xcode path — check for both Xcode.app and Xcode-beta.app
+   XCODE_PATH=""
+   if [ -d "/Applications/Xcode.app" ]; then
+       XCODE_PATH="/Applications/Xcode.app/Contents/Developer"
+   elif [ -d "/Applications/Xcode-beta.app" ]; then
+       XCODE_PATH="/Applications/Xcode-beta.app/Contents/Developer"
+   fi
+   export DEVELOPER_DIR="$XCODE_PATH"
 
-     # Create XCFramework
-     xcodebuild -create-xcframework \
-       -framework /tmp/<sdk-name>-device.xcarchive/Products/Library/Frameworks/<Framework>.framework \
-       -framework /tmp/<sdk-name>-sim.xcarchive/Products/Library/Frameworks/<Framework>.framework \
-       -output <output-dir>/ios/<Framework>.xcframework
-     ```
-   - Clean up: `rm -rf /tmp/<sdk-name>-src /tmp/<sdk-name>-device.xcarchive /tmp/<sdk-name>-sim.xcarchive`
+   # Get SDK paths
+   IPHONEOS_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+   IPHONESIMULATOR_SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+
+   # Check for SPM dependencies and resolve them
+   if [ -f "Package.swift" ]; then
+       swift package resolve
+   fi
+
+   # Build for device (arm64-apple-ios)
+   swift build --triple arm64-apple-ios \
+       --sdk "$IPHONEOS_SDK" \
+       -Xswiftc "-sdk" -Xswiftc "$IPHONEOS_SDK"
+
+   # Build for simulator (arm64-apple-ios-simulator)
+   swift build --triple arm64-apple-ios-simulator \
+       --sdk "$IPHONESIMULATOR_SDK" \
+       -Xswiftc "-sdk" -Xswiftc "$IPHONESIMULATOR_SDK"
+
+   # Collect all .o files and create static libraries with ar
+   DEVICE_OBJECTS=$(find .build/arm64-apple-ios -name "*.o" -path "*/<SdkName>.build/*")
+   ar rcs /tmp/<sdk-name>-device.a $DEVICE_OBJECTS
+
+   SIM_OBJECTS=$(find .build/arm64-apple-ios-simulator -name "*.o" -path "*/<SdkName>.build/*")
+   ar rcs /tmp/<sdk-name>-sim.a $SIM_OBJECTS
+
+   # Collect headers — find all public .h files in the source or build
+   # For ObjC projects: find headers in the source's include/Headers directory
+   mkdir -p /tmp/<sdk-name>-headers
+   find . -name "*.h" -path "*/include/*" -exec cp {} /tmp/<sdk-name>-headers/ \;
+   # Also check build output for generated headers
+   find .build -name "*.h" -path "*/Headers/*" -exec cp {} /tmp/<sdk-name>-headers/ \;
+
+   # Create a module.modulemap
+   cat > /tmp/<sdk-name>-headers/module.modulemap << 'MAPEOF'
+   framework module <SdkName> {
+       umbrella header "<SdkName>.h"
+       export *
+       module * { export * }
+   }
+   MAPEOF
+
+   # Create XCFramework with -library flag (not -framework)
+   xcodebuild -create-xcframework \
+       -library /tmp/<sdk-name>-device.a -headers /tmp/<sdk-name>-headers \
+       -library /tmp/<sdk-name>-sim.a -headers /tmp/<sdk-name>-headers \
+       -output <output-dir>/ios/<SdkName>.xcframework
+
+   # Clean up
+   rm -rf /tmp/<sdk-name>-src /tmp/<sdk-name>-device.a /tmp/<sdk-name>-sim.a /tmp/<sdk-name>-headers
+   ```
+
+   **Key gotchas for iOS builds:**
+   - `xcodebuild archive` often builds Mac Catalyst (platform 6) instead of iOS — avoid it
+   - Always set `DEVELOPER_DIR` — `xcode-select -p` may point to CommandLineTools, not Xcode.app
+   - Check for **both** `/Applications/Xcode.app` and `/Applications/Xcode-beta.app`
+   - SPM dependencies must be resolved before `swift build`
+   - Use `-library` flag (not `-framework`) with `xcodebuild -create-xcframework` for static libraries
+   - Headers must be copied alongside the library for the binding project to find them
 
 3. **Ask user** — Only if both approaches above fail. Tell the user what was tried and ask for a direct URL to an XCFramework or source repo.
 
@@ -126,6 +175,11 @@ unzip -o <output-dir>/android/*.aar -d /tmp/<sdk-name>-aar-inspect
 # Check for public API
 jar tf /tmp/<sdk-name>-aar-inspect/classes.jar | head -50
 
+# Use javap to inspect actual method signatures
+cd /tmp/<sdk-name>-aar-inspect
+jar xf classes.jar
+javap -public com/example/SdkName/*.class
+
 # Clean up
 rm -rf /tmp/<sdk-name>-aar-inspect
 ```
@@ -163,6 +217,12 @@ Generate in `<output-dir>/ios/`:
 </Project>
 ```
 
+**IMPORTANT: iOS build requires `DEVELOPER_DIR`** — Always build the iOS binding project with the Xcode environment variable:
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer dotnet build <csproj>
+# or Xcode-beta.app if that's what's installed
+```
+
 **`ApiDefinition.cs`** — iOS binding definitions:
 - Use `using ObjCRuntime;` and `using Foundation;`
 - Use `[BaseType(typeof(NSObject))]` for classes
@@ -173,11 +233,13 @@ Generate in `<output-dir>/ios/`:
 - Use `[Abstract]` for required protocol members
 - Map ObjC types: `NSString` → `string`, `NSArray` → `NSObject[]`, etc.
 - **Use actual API surface from headers** — do not guess
+- **CRITICAL: Avoid namespace/class name clashes** — If the SDK's main class name matches a namespace segment (e.g., class `Amplitude` in namespace `Amplitude.iOS`), the compiler will resolve `Amplitude` as the namespace, not the class. Use a binding namespace like `<SdkName>Binding.iOS` instead of `<SdkName>.iOS`.
+- **Protocol interface types may not resolve** — If a protocol like `IAMPMiddleware` causes CS0246 errors, use `NSObject` as the parameter type instead. The caller can still pass protocol-conforming objects.
 
 **`StructsAndEnums.cs`** — Enums and structs:
 - Use `[Native]` attribute on enums that map to native enums
 - Use `long` as the backing type for `nint`-backed enums
-- Place in the correct namespace
+- Place in the correct namespace (same binding namespace as ApiDefinition.cs)
 
 ### Android binding (if platform is `android` or `both`)
 
@@ -197,15 +259,62 @@ Generate in `<output-dir>/android/`:
   </ItemGroup>
   <ItemGroup>
     <AndroidLibrary Include="<actual-aar-filename>.aar" />
+    <!-- Include companion/core JARs if they exist -->
+    <AndroidLibrary Include="<core-jar-filename>.jar" />
   </ItemGroup>
 </Project>
 ```
 
-**`Transforms/Metadata.xml`** — Map Java packages to C# namespaces, fix naming conventions.
+**`Transforms/Metadata.xml`** — Map Java packages to C# namespaces and fix common issues:
+```xml
+<metadata>
+  <!-- Map Java packages to C# namespaces -->
+  <attr path="/api/package[@name='com.example.sdk']" name="managedName">Example.Sdk</attr>
+
+  <!-- Remove internal packages not part of public API -->
+  <remove-node path="/api/package[@name='com.example.sdk.internal']" />
+
+  <!-- Remove plugin classes that clash with object.GetType() -->
+  <!-- Java classes with a getType() method conflict with System.Object.GetType() -->
+  <remove-node path="/api/package[@name='com.example.sdk.plugins']" />
+  <remove-node path="/api/package[@name='com.example.sdk.platform']" />
+  <remove-node path="/api/package[@name='com.example.sdk.platform.plugins']" />
+
+  <!-- Remove logger classes with unimplemented interface members -->
+  <!-- Classes implementing logging interfaces often have abstract members that -->
+  <!-- can't be bound properly -->
+  <remove-node path="/api/package[@name='com.example.common']/class[@name='ConsoleLogger']" />
+
+  <!-- Fix field name clashes (member name same as enclosing type name — CS0542) -->
+  <!-- When a class has a static field with the same name as the class, rename it -->
+  <attr path="/api/package[@name='com.example.sdk.events']/class[@name='Revenue']/field[@name='REVENUE']" name="managedName">RevenueKey</attr>
+
+  <!-- Remove network/storage/utility internals -->
+  <remove-node path="/api/package[@name='com.example.sdk.network']" />
+  <remove-node path="/api/package[@name='com.example.sdk.storage']" />
+  <remove-node path="/api/package[@name='com.example.sdk.utilities']" />
+</metadata>
+```
+
+**Common Metadata.xml patterns for fixing build errors:**
+- **CS0535/CS0738 (unimplemented interface members)**: `<remove-node>` the offending class
+- **CS0542 (member name same as type)**: Rename the field with `managedName`
+- **CS0234 (type not found in namespace)**: Remove the package referencing missing types
+- **`getType()` conflict**: Any Java class with a `getType()` method will clash with `System.Object.GetType()`. Remove the class or its package.
+- **Kotlin internal classes**: Always remove packages named `internal`, `internal.*`
+- **Build artifacts vs public API**: Proactively remove `BuildConfig`, `R`, `R$*` classes
 
 **`Transforms/EnumFields.xml`** — Map Java `static final int` constants to C# enums.
 
 **`Additions/Additions.cs`** — Partial classes, event adapters, manual fixes.
+
+**Android build may require SDK installation:**
+```bash
+# If build fails with XA5207 (Android API not installed), run:
+dotnet build -t:InstallAndroidDependencies \
+    -p:AcceptAndroidSDKLicenses=true \
+    <csproj-path>
+```
 
 ---
 
@@ -238,11 +347,17 @@ Generate in `<output-dir>/unified/`:
 
 **`Platforms/iOS/<SdkName>Service.cs`** — iOS implementation:
 - Implement the interface by calling into the iOS binding project types
+- Use `global::` prefix for binding namespace types to avoid ambiguity
 - Handle platform-specific initialization
 
 **`Platforms/Android/<SdkName>Service.cs`** — Android implementation:
 - Implement the interface by calling into the Android binding project types
 - Handle platform-specific initialization (Android Context, etc.)
+- **Type conversion gotchas:**
+  - Use `new Java.Lang.Double(value)` for nullable Java Double properties
+  - Use `new Java.Lang.String(value)` for dictionary values (Java Object type)
+  - Use `new Dictionary<string, Java.Lang.Object>()` for Java Map parameters
+  - Android `Configuration` often needs `global::Android.App.Application.Context`
 
 **`<SdkName>ServiceExtensions.cs`** — DI registration:
 ```csharp
@@ -293,6 +408,16 @@ Add project references or file includes as appropriate to access the generated s
 
 ## Phase 7: Build & Verify
 
+### Check .NET SDK version
+```bash
+dotnet --version
+```
+If the installed .NET SDK is older than 10.0, install .NET 10:
+```bash
+curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --channel 10.0 --quality preview
+# Add to PATH: export PATH="$HOME/.dotnet:$PATH"
+```
+
 ### Install workloads if needed
 ```bash
 # Check if required workloads are installed
@@ -302,11 +427,22 @@ dotnet workload install maui-ios    # if targeting iOS
 dotnet workload install maui-android # if targeting Android
 ```
 
+### Detect Xcode path (required for iOS builds)
+```bash
+# xcode-select -p often points to CommandLineTools, not Xcode.app
+# Always check for the actual Xcode.app location
+if [ -d "/Applications/Xcode.app" ]; then
+    export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+elif [ -d "/Applications/Xcode-beta.app" ]; then
+    export DEVELOPER_DIR="/Applications/Xcode-beta.app/Contents/Developer"
+fi
+```
+
 ### Build each project
-Build in dependency order:
-1. iOS binding project (if applicable): `dotnet build <output-dir>/ios/<SdkName>.Binding.iOS.csproj`
+Build in dependency order. **Prefix iOS builds with DEVELOPER_DIR:**
+1. iOS binding project (if applicable): `DEVELOPER_DIR=... dotnet build <output-dir>/ios/<SdkName>.Binding.iOS.csproj`
 2. Android binding project (if applicable): `dotnet build <output-dir>/android/<SdkName>.Binding.Android.csproj`
-3. Unified project (if applicable): `dotnet build <output-dir>/unified/<SdkName>.Maui.csproj`
+3. Unified project (if applicable): `DEVELOPER_DIR=... dotnet build <output-dir>/unified/<SdkName>.Maui.csproj`
 4. Test project: `dotnet build <output-dir>/tests/<SdkName>.Binding.Tests.csproj`
 
 ### Run tests
@@ -323,11 +459,17 @@ If build or test fails:
 5. Repeat up to 5 times
 
 Common fixes:
-- **CS0246 type not found**: Add missing `using` statement or fix type name
-- **BI1001 missing selector**: Fix `[Export]` attribute selector string
-- **MT5210 native reference not found**: Fix path in `.csproj`
-- **Java.Interop errors**: Fix Metadata.xml transforms
-- **Test failures**: Fix test assertions to match actual generated code
+- **CS0246 type not found**: Add missing `using` statement or fix type name. For protocol interfaces (e.g., `IAMPMiddleware`), use `NSObject` instead.
+- **CS0426 type used like namespace**: Namespace segment matches a class name. Rename the binding namespace (e.g., `AmplitudeBinding.iOS` instead of `Amplitude.iOS`).
+- **CS0542 member name same as type**: Rename the field in Metadata.xml with `managedName`.
+- **CS0535/CS0738 unimplemented interface**: Remove the class in Metadata.xml with `<remove-node>`.
+- **BI1001 missing selector**: Fix `[Export]` attribute selector string.
+- **MT5210 native reference not found**: Fix path in `.csproj`.
+- **XA5207 Android API not installed**: Run `dotnet build -t:InstallAndroidDependencies -p:AcceptAndroidSDKLicenses=true`.
+- **Java.Interop errors**: Fix Metadata.xml transforms.
+- **NETSDK1045 SDK version too old**: Install .NET 10 SDK.
+- **Xcode not found (MSB...)**:  Set `DEVELOPER_DIR` environment variable.
+- **Test failures**: Fix test assertions to match actual generated code.
 
 ---
 
@@ -359,3 +501,7 @@ Print:
 - **AAR contents are the source of truth for Android** — always prefer inspecting the actual JAR classes over documentation.
 - **Keep bindings focused** — bind the public API surface, not internal/private types.
 - **Use the project's conventions** — follow patterns from CLAUDE.md (net10.0 TFM, attribute patterns, etc.).
+- **Kotlin SDKs need companion JARs** — A Kotlin multiplatform or Android SDK often splits code into `-android` (AAR) and `-core` (JAR). Both must be included.
+- **Avoid namespace/class name collisions** — Use `<SdkName>Binding.iOS` instead of `<SdkName>.iOS` if the SDK has a class with the same name as the SDK.
+- **Always set DEVELOPER_DIR for iOS builds** — `xcode-select -p` may point to CommandLineTools.
+- **Android Metadata.xml is iterative** — Start with namespace mappings and internal removals, then fix errors one by one. The most common issues are `getType()` conflicts, unimplemented interfaces, and name clashes.

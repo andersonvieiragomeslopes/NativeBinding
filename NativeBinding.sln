@@ -1,0 +1,35 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "output", "output", "{A4D170B3-E0F7-660F-F7DC-655DD9B0CAA3}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "amplitude", "amplitude", "{A4E4F6CA-740D-4B79-D210-DA21CC630667}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ios", "ios", "{1B193CFF-35C7-028E-651D-289EC22B0664}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Amplitude.Binding.iOS", "output\amplitude\ios\Amplitude.Binding.iOS.csproj", "{6D304C31-0C64-6EB7-2976-33290A471074}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6D304C31-0C64-6EB7-2976-33290A471074}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6D304C31-0C64-6EB7-2976-33290A471074}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6D304C31-0C64-6EB7-2976-33290A471074}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6D304C31-0C64-6EB7-2976-33290A471074}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{A4E4F6CA-740D-4B79-D210-DA21CC630667} = {A4D170B3-E0F7-660F-F7DC-655DD9B0CAA3}
+		{1B193CFF-35C7-028E-651D-289EC22B0664} = {A4E4F6CA-740D-4B79-D210-DA21CC630667}
+		{6D304C31-0C64-6EB7-2976-33290A471074} = {1B193CFF-35C7-028E-651D-289EC22B0664}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {D2337FD1-1674-4CA9-9B9D-F2CABDB18A40}
+	EndGlobalSection
+EndGlobal

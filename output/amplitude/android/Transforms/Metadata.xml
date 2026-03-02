@@ -1,0 +1,47 @@
+<metadata>
+  <!-- Map Java packages to C# namespaces -->
+  <attr path="/api/package[@name='com.amplitude.android']" name="managedName">Amplitude.Android</attr>
+  <attr path="/api/package[@name='com.amplitude.android.events']" name="managedName">Amplitude.Android.Events</attr>
+  <attr path="/api/package[@name='com.amplitude.android.plugins']" name="managedName">Amplitude.Android.Plugins</attr>
+  <attr path="/api/package[@name='com.amplitude.android.utilities']" name="managedName">Amplitude.Android.Utilities</attr>
+  <attr path="/api/package[@name='com.amplitude.android.storage']" name="managedName">Amplitude.Android.Storage</attr>
+  <attr path="/api/package[@name='com.amplitude.android.migration']" name="managedName">Amplitude.Android.Migration</attr>
+  <attr path="/api/package[@name='com.amplitude.common.android']" name="managedName">Amplitude.Common.Android</attr>
+
+  <!-- Remove internal packages that are not part of the public API -->
+  <remove-node path="/api/package[@name='com.amplitude.android.internal']" />
+  <remove-node path="/api/package[@name='com.amplitude.android.internal.gestures']" />
+  <remove-node path="/api/package[@name='com.amplitude.android.internal.fragments']" />
+  <remove-node path="/api/package[@name='com.amplitude.android.internal.locators']" />
+  <remove-node path="/api/package[@name='com.amplitude.android']/class[@name='BuildConfig']" />
+
+  <!-- Remove problematic plugin classes that clash with object.GetType() -->
+  <remove-node path="/api/package[@name='com.amplitude.android.plugins']" />
+  <remove-node path="/api/package[@name='com.amplitude.core.platform']" />
+  <remove-node path="/api/package[@name='com.amplitude.core.platform.plugins']" />
+
+  <!-- Remove logger classes with unimplemented interface members -->
+  <remove-node path="/api/package[@name='com.amplitude.common.android']/class[@name='LogcatLogger']" />
+  <remove-node path="/api/package[@name='com.amplitude.common.jvm']/class[@name='ConsoleLogger']" />
+
+  <!-- Fix Revenue field name clash (member name same as type name) -->
+  <attr path="/api/package[@name='com.amplitude.core.events']/class[@name='Revenue']/field[@name='REVENUE']" name="managedName">RevenueKey</attr>
+
+  <!-- Remove network/http internals -->
+  <remove-node path="/api/package[@name='com.amplitude.core.network']" />
+  <remove-node path="/api/package[@name='com.amplitude.core.utilities']" />
+  <remove-node path="/api/package[@name='com.amplitude.core.utilities.http']" />
+
+  <!-- Remove storage internals -->
+  <remove-node path="/api/package[@name='com.amplitude.android.storage']" />
+  <remove-node path="/api/package[@name='com.amplitude.android.migration']" />
+  <remove-node path="/api/package[@name='com.amplitude.android.utilities']" />
+
+  <!-- Remove id package (external dependency) -->
+  <remove-node path="/api/package[@name='com.amplitude.id']" />
+  <remove-node path="/api/package[@name='com.amplitude.id.utilities']" />
+
+  <!-- Remove common internals -->
+  <remove-node path="/api/package[@name='com.amplitude.common']" />
+  <remove-node path="/api/package[@name='com.amplitude.common.jvm']" />
+</metadata>

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <TransformFile Include="Transforms\Metadata.xml" />
+    <TransformFile Include="Transforms\EnumFields.xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <AndroidLibrary Include="analytics-android-1.21.3.aar" />
+    <AndroidLibrary Include="analytics-core-1.21.3.jar" />
+  </ItemGroup>
+</Project>
