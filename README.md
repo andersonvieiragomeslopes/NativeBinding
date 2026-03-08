@@ -1,10 +1,14 @@
 # NativeBinding
 
-Automated native SDK binding generator for .NET MAUI. This project uses an AI agent (Claude Code) to fully automate the creation of .NET MAUI native bindings from iOS and Android SDKs — including artifact discovery, API research, code generation, build verification, and testing.
+Automated native SDK binding generator for .NET MAUI. This project uses AI agents (Claude Code and GitHub Copilot) to fully automate the creation of .NET MAUI native bindings from iOS and Android SDKs — including artifact discovery, API research, code generation, build verification, and testing.
 
 ## How It Works
 
-The agent is driven by a custom Claude Code command (`/create-binding`) defined in `.claude/commands/create-binding.md`. When invoked, it runs through 8 phases autonomously:
+The workflow is available as:
+- Claude Code command: `.claude/commands/create-binding.md`
+- Copilot prompt file: `.github/prompts/create-binding.prompt.md`
+
+When invoked, it runs through 8 phases autonomously:
 
 ### Phase 1: Setup
 Creates the output directory structure with `ios/`, `android/`, `unified/`, and `tests/` subdirectories.
@@ -34,15 +38,23 @@ Prints a summary with status, files created, build results, test results, and ne
 
 ## Usage
 
+Claude Code:
 ```
-/create-binding <sdk-name> <platform: ios|android|both> [output-dir]
+/create-binding <sdk-name> <platform: ios|android|both> [type: service|view] [output-dir]
 ```
+
+Copilot Chat (prompt file):
+```
+/create-binding
+```
+Then provide inputs for `sdk-name`, `platform`, optional `type`, and optional `output-dir`.
 
 Examples:
 ```
 /create-binding Amplitude both ./output/amplitude
 /create-binding Firebase ios ./output/firebase
 /create-binding Lottie android ./output/lottie
+/create-binding GoogleMaps both view ./output/googlemaps
 ```
 
 ## Example Output: Amplitude SDK

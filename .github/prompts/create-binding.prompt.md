@@ -1,9 +1,19 @@
+---
+agent: 'agent'
+description: 'Create a complete .NET MAUI native binding for iOS and/or Android'
+---
+
 Create a complete .NET MAUI native binding end-to-end: discover artifacts, fetch them, research the API, generate bindings, create a unified cross-platform API, generate tests, build, and iterate until everything passes.
 
-Arguments format: `$ARGUMENTS`
-Expected: `<sdk-name> <platform: ios|android|both> [type: service|view] [output-dir]`
+Inputs:
+- **sdk-name** (required): `${input:sdk-name:SDK name (for example: Amplitude, Firebase, Lottie)}`
+- **platform** (required): `${input:platform:ios|android|both}`
+- **type** (optional): `${input:type:service|view (defaults to service)}`
+- **output-dir** (optional): `${input:output-dir:./output/<sdk-name-lowercase> (defaults automatically)}`
 
+Interpretation rules:
 - **type** defaults to `service` if omitted. Use `view` when the SDK provides a visual component (e.g., Lottie animation view, video player, map, ad banner).
+- **output-dir** defaults to `./output/<sdk-name-lowercase>` if omitted.
 
 Examples:
 - `Amplitude both service ./output/amplitude`
@@ -16,7 +26,7 @@ Examples:
 
 ## Phase 1: Setup
 
-Parse `$ARGUMENTS`:
+Parse the inputs:
 - **sdk-name** (required): The SDK to generate bindings for (e.g., "Amplitude", "Firebase", "Lottie")
 - **platform** (required): `ios`, `android`, or `both`
 - **type** (optional, defaults to `service`): `service` or `view`
@@ -24,7 +34,7 @@ Parse `$ARGUMENTS`:
   - `view` — SDK provides a visual component/widget (animation view, map, player, ad banner, etc.)
 - **output-dir** (optional, defaults to `./output/<sdk-name-lowercase>`)
 
-If arguments are missing or malformed, ask the user to provide them in the correct format.
+If required inputs are missing or malformed, ask the user to provide valid values.
 
 Create directory structure:
 ```
@@ -666,7 +676,7 @@ Print:
 - **Headers are the source of truth for iOS** — always prefer ObjC header content over documentation when they conflict.
 - **AAR contents are the source of truth for Android** — always prefer inspecting the actual JAR classes over documentation.
 - **Keep bindings focused** — bind the public API surface, not internal/private types.
-- **Use the project's conventions** — follow patterns from CLAUDE.md (net10.0 TFM, attribute patterns, etc.).
+- **Use the project's conventions** — follow patterns from repository instruction files and existing generated outputs (net10.0 TFM, attribute patterns, etc.).
 - **Kotlin SDKs need companion JARs** — A Kotlin multiplatform or Android SDK often splits code into `-android` (AAR) and `-core` (JAR). Both must be included.
 - **Avoid namespace/class name collisions** — Use `<SdkName>Binding.iOS` instead of `<SdkName>.iOS` if the SDK has a class with the same name as the SDK.
 - **Always set DEVELOPER_DIR for iOS builds** — `xcode-select -p` may point to CommandLineTools.
